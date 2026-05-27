@@ -1,0 +1,76 @@
+{
+	"$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+	"blocks": [
+		{
+			"alignment": "left",
+			"segments": [
+				{
+					"foreground": "#56B6C2",
+					"properties": {
+						"style": "folder",
+						"home_icon": "🌱 🏠"
+					},
+					"style": "plain",
+					"template": "{{ .Path }} ",
+					"type": "path"
+				}
+			],
+			"type": "prompt"
+		},
+		{
+			"alignment": "left",
+			"newline": false,
+			"segments": [
+				{
+					"foreground": "#D0666F",
+					"properties": {
+						"branch_icon": "",
+						"fetch_stash_count": true,
+						"fetch_status": true,
+						"commit_icon": "@",
+						"fetch_upstream_icon": true,
+						"fetch_worktree_count": true
+					},
+					"style": "plain",
+					"template": "<#5FAAE8>git:(</>{{ .HEAD }} {{if .BranchStatus }}{{ .BranchStatus }}{{ end }}</><#5FAAE8>)</>",
+					"type": "git"
+				},
+				{
+					"foreground": "#FFE68C",
+					"properties": {
+						"azure_devops_icon": "\ufd03",
+						"bitbucket_icon": "\uf171",
+						"branch_gone_icon": "\uf68e",
+						"branch_icon": "",
+						"branch_identical_icon": "",
+						"commit_icon": "\uf417",
+						"fetch_stash_count": true,
+						"fetch_status": true,
+						"fetch_upstream_icon": true,
+						"fetch_worktree_count": true,
+						"tag_icon": "\uf412"
+					},
+					"style": "plain",
+					"template": "{{ if .Working.Changed }}<#F23D3D>\u2800{{ .Working.String }}</>{{ end }}<#17D7A0>{{ if .Staging.Changed }}\u2800{{ .Staging.String }}{{ end }}",
+					"type": "git"
+				}
+			],
+			"type": "prompt"
+		},
+		{
+			"alignment": "left",
+			"newline": true,
+			"segments": [
+				{
+					"style": "plain",
+					"template": "{{ if eq .Code 0 }}<#98C379>\u279c</>{{ else }}<#BF616A>\u2717</>{{ end }}",
+					"type": "text"
+				}
+			],
+			"type": "prompt"
+		}
+	],
+	"console_title_template": "{{ .Folder }}",
+	"final_space": true,
+	"version": 2
+}
