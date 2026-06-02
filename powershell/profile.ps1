@@ -564,3 +564,21 @@ Write-Host "PowerShell 7 Loaded" -ForegroundColor Green
 Write-Host "Projects : D:\Projects" -ForegroundColor Cyan
 Write-Host ""
 
+function Get-PublicIPInfo {
+    try {
+        $data = Invoke-RestMethod -Uri "https://ipinfo.io/json" -Method Get
+
+        [PSCustomObject]@{
+            IP       = $data.ip
+            City     = $data.city
+            Region   = $data.region
+            Country  = $data.country
+            ISP      = $data.org
+            Location = $data.loc
+            TimeZone = $data.timezone
+        }
+    }
+    catch {
+        Write-Error "Failed to get IP information: $_"
+    }
+}

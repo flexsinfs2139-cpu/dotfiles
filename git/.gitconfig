@@ -272,3 +272,5 @@
 
 [includeIf "gitdir:/Users/"]
     path = ~/.gitconfig.macos
+[credential]
+	helper = manager
