@@ -8,13 +8,16 @@
 # =========================================================
 
 oh-my-posh init pwsh --config "$HOME\.dotfiles\oh-my-posh\theme.omp.json" | Invoke-Expression
+Invoke-Expression (& { (zoxide init powershell | Out-String) })
 
 # =========================================================
 # PSREADLINE CONFIGURATION
 # Better terminal UX + history management
 # =========================================================
 
-Import-Module PSReadLine
+if (Get-Module -ListAvailable PSReadLine) {
+    Import-Module PSReadLine
+}
 
 # Prediction Settings
 Set-PSReadLineOption -PredictionSource History
