@@ -376,3 +376,10 @@ Reload:
 ```
 
 Your terminal environment should now be fully restored.
+
+---
+# TODO
+fd     # better find
+rg     # better grep
+eza    # better ls
+jq     # json processing
