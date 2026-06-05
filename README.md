@@ -257,19 +257,13 @@ Reload profile:
 
 # Recommended Profile Setup
 
+To keep your profile clean and leverage the modular configuration, add the following single line to your PowerShell profile (`$PROFILE`) to dot-source the main config loader:
+
 ```powershell
-# Oh My Posh
-oh-my-posh init pwsh --config "$HOME\.dotfiles\oh-my-posh\theme.omp.json" | Invoke-Expression
-
-# Zoxide
-Invoke-Expression (& { (zoxide init powershell | Out-String) })
-
-# FZF
-Invoke-Expression (& { (fzf --powershell) })
-
-# Terminal Icons
-Import-Module Terminal-Icons
+. "$HOME\.dotfiles\powershell\profile.ps1"
 ```
+
+This loader will dynamically resolve your workspaces, import the required plugins (Oh My Posh, Zoxide, FZF, and Terminal Icons) with safety checks, and load your custom aliases and utilities.
 
 ---
 
@@ -335,27 +329,44 @@ Store the following in Git:
 ```text
 .dotfiles/
 ├── README.md
-├── powershell/
-│   └── Microsoft.PowerShell_profile.ps1
+├── git/
+│   └── .gitconfig
 ├── oh-my-posh/
 │   └── theme.omp.json
-└── windows-terminal/
-    └── settings.json
+└── powershell/
+    ├── profile.ps1
+    └── modules/
+        ├── completions.ps1
+        ├── aliases.ps1
+        ├── utilities.ps1
+        └── flutter-builder.ps1
 ```
 
 Clone and restore on a new machine:
 
-```powershell
-git clone <repo-url> $HOME\.dotfiles
-```
+### Option 1: Automated Setup Script (Recommended)
+This method automatically backs up existing settings, queries the profile locations for both PowerShell 7 (pwsh) and Windows PowerShell, and sets up symbolic links automatically.
 
-Then copy:
+1. Clone the repository:
+   ```powershell
+   git clone <repo-url> $HOME\.dotfiles
+   ```
+2. Navigate into the folder and run `setup.bat`:
+   ```powershell
+   cd $HOME\.dotfiles
+   .\setup.bat
+   ```
+   *(The script will automatically request Administrator elevation to allow creation of symbolic links).*
+
+### Option 2: Manual Profile Sourcing
+If you prefer not to use symbolic links, you can manually append the dot-sourcing line to your profile:
 
 ```powershell
-Copy-Item `
-    "$HOME\.dotfiles\powershell\Microsoft.PowerShell_profile.ps1" `
-    $PROFILE `
-    -Force
+# Create profile if it doesn't exist
+if (!(Test-Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force }
+
+# Append dot-sourcing command to your profile
+Add-Content -Path $PROFILE -Value '. "$HOME\.dotfiles\powershell\profile.ps1"'
 ```
 
 Reload:
