@@ -85,3 +85,18 @@ function ss {
 
     Write-Host "Screenshot saved: $((Resolve-Path ".\$Name").Path)"
 }
+
+function Get-FolderSize {
+    param(
+        [string]$Path = (Get-Location).Path
+    )
+
+    $size = (Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue |
+        Measure-Object -Property Length -Sum).Sum
+
+    [PSCustomObject]@{
+        Folder = $Path
+        SizeMB = [math]::Round($size / 1MB, 2)
+        SizeGB = [math]::Round($size / 1GB, 2)
+    }
+}
