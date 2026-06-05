@@ -63,3 +63,25 @@ function Get-PublicIPInfo {
         Write-Error "Failed to retrieve network details: $_"
     }
 }
+
+function ss {
+    param(
+        [string]$Name
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        $Name = Read-Host "Enter screenshot name"
+    }
+
+    if (-not $Name.EndsWith(".png")) {
+        $Name += ".png"
+    }
+
+    $devicePath = "/sdcard/$Name"
+
+    adb shell screencap -p $devicePath
+    adb pull $devicePath ".\$Name"
+    adb shell rm $devicePath
+
+    Write-Host "Screenshot saved: $((Resolve-Path ".\$Name").Path)"
+}
