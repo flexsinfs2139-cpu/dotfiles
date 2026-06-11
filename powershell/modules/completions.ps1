@@ -53,8 +53,8 @@ if (Get-Command zoxide -ErrorAction SilentlyContinue) {
 if (Get-Command fzf -ErrorAction SilentlyContinue) {
     # Guard against older FZF versions that do not support the --powershell flag
     try {
-        $fzfInit = & fzf --powershell 2>$null
-        if ($null -ne $fzfInit -and $fzfInit -ne "") {
+        $fzfInit = (& fzf --powershell 2>$null | Out-String)
+        if (![string]::IsNullOrWhiteSpace($fzfInit)) {
             Invoke-Expression $fzfInit
         }
     } catch {
