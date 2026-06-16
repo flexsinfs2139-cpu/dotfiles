@@ -100,3 +100,5 @@ function Get-FolderSize {
         SizeGB = [math]::Round($size / 1GB, 2)
     }
 }
+
+
