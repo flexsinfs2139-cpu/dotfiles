@@ -4,8 +4,6 @@
 # =========================================================
 
 # --- General Aliases & Shortcuts ---
-Set-Alias c code
-function ch { code . }
 
 # reload function is defined in the loader or can be run here
 function reload {
