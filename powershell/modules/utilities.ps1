@@ -102,3 +102,25 @@ function Get-FolderSize {
 }
 
 
+function New-ProjectName {
+    param(
+        [string]$ProjectName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProjectName)) {
+        $ProjectName = Read-Host "Enter project name"
+    }
+
+    $pascalCase = (($ProjectName -split '[-_\s]') | ForEach-Object {
+        if ($_ -and $_.Length -gt 0) {
+            $_.Substring(0,1).ToUpper() + $_.Substring(1).ToLower()
+        }
+    }) -join ''
+
+    $result = "$pascalCase-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+
+    $result | Set-Clipboard
+
+    Write-Host "Copied to clipboard: $result" -ForegroundColor Green
+    return $result
+}
