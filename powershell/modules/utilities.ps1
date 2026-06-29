@@ -124,3 +124,22 @@ function New-ProjectName {
     Write-Host "Copied to clipboard: $result" -ForegroundColor Green
     return $result
 }
+
+function GetDateStamp {
+    param(
+        [string]$Prefix
+    )
+
+    $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+    $result = if ([string]::IsNullOrWhiteSpace($Prefix)) {
+        $stamp
+    } else {
+        "$($Prefix.ToUpperInvariant())_$stamp"
+    }
+
+    # Copy to clipboard
+    $result | Set-Clipboard
+
+    return $result
+}
