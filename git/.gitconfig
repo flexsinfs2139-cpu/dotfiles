@@ -167,3 +167,5 @@
 
 [credential]
 	helper = manager
+[core]
+	editor = \"C:\\Users\\Ravi Kant\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code\" --wait

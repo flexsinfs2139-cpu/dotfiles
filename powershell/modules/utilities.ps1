@@ -143,3 +143,71 @@ function GetDateStamp {
 
     return $result
 }
+
+function Find-CodeUsage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Name,
+
+        [Parameter(Position = 1)]
+        [string]$Path
+    )
+
+    # Ask for a folder if none was provided.
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        Add-Type -AssemblyName System.Windows.Forms
+
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = "Select the folder to search"
+        $dialog.ShowNewFolderButton = $false
+
+        if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+            Write-Warning "Search cancelled."
+            return
+        }
+
+        $Path = $dialog.SelectedPath
+    }
+
+    if (-not (Test-Path $Path -PathType Container)) {
+        Write-Error "Folder not found: $Path"
+        return
+    }
+
+    $pattern = [regex]::Escape($Name) + '\s*\('
+
+    Write-Host ""
+    Write-Host "Searching for '$Name' in:" -ForegroundColor Cyan
+    Write-Host "  $Path" -ForegroundColor Yellow
+    Write-Host ("=" * 80)
+
+    $results = foreach ($file in Get-ChildItem -Path $Path -Recurse -File) {
+        $lineNumber = 0
+
+        Get-Content $file.FullName | ForEach-Object {
+            $lineNumber++
+
+            if ($_ -match $pattern) {
+                [PSCustomObject]@{
+                    File = $file.FullName
+                    Line = $lineNumber
+                    Code = $_.Trim()
+                }
+            }
+        }
+    }
+
+    if ($results) {
+        $results | Format-Table -AutoSize
+
+        Write-Host ""
+        Write-Host "Found $($results.Count) match(es)." -ForegroundColor Green
+    }
+    else {
+        Write-Host ""
+        Write-Host "No matches found." -ForegroundColor Yellow
+    }
+
+    return $results
+}
