@@ -165,6 +165,7 @@
     wta        = "!f() { git worktree add ../$1 $1; }; f"
     wtr        = "!f() { git worktree remove ../$1; }; f"
 
+	byAuthor = "!f() { git log --all --author=\"$1\" --oneline --graph --decorate; }; f"
 [credential]
 	helper = manager
 [core]
