@@ -132,6 +132,11 @@ $links = @(
         Source = Join-Path $dotfilesDir "powershell\profile.ps1"
         Dest = Join-Path $docsPath "PowerShell\Microsoft.PowerShell_profile.ps1"
         Name = "PowerShell 7+ Profile"
+    },
+    @{
+        Source = Join-Path $dotfilesDir "atuin\config.toml"
+        Dest = Join-Path $env:APPDATA "atuin\config.toml"
+        Name = "Atuin Config (config.toml)"
     }
 )
 

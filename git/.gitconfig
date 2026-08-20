@@ -49,123 +49,203 @@
     # ---------------------------------------------------
     # 📜 LOGS & HISTORY
     # ---------------------------------------------------
+    # One-line graph log of every branch
     l          = log --oneline --graph --decorate --all
+    # Same as `l` but with abbreviated hashes and relative dates
     lg         = log --graph --abbrev-commit --decorate --date=relative --all
+    # Colorized, human-friendly one-liner: hash, date, subject, author
     hist       = log --pretty=format:'%C(yellow)%h%Creset %Cgreen%ad%Creset | %s%d %Cblue[%an]%Creset' --graph --date=short
+    # Full details (incl. changed files) of the most recent commit
     last       = log -1 HEAD --stat
+    # Files changed in the previous commit
     changes    = diff --stat HEAD^ HEAD
+    # Last 10 branches touched, most recently committed first
     recent     = "!git for-each-ref --sort=-committerdate refs/heads/ --format='%(refname:short) - %(committerdate:relative) - %(subject)' | head -n 10"
+    # Top 10 contributors by commit count, merges excluded
     top        = "!git shortlog -sn --all --no-merges | head -n 10"
+    # `git find <text>` — search commit messages across all branches
     find       = "!f() { git log --all --grep=\"$1\"; }; f"
+    # Same as `find` but with a compact one-line graph view
     search     = "!f() { git log --all --oneline --decorate --grep=\"$1\"; }; f"
+    # Commits made since midnight today
     today      = log --since=midnight --oneline
+    # Commits made in the last 7 days
     week       = log --since='1 week ago' --oneline
+    # One-line decorated graph of all branches (alias of `l`)
     graph      = log --all --decorate --oneline --graph
 
     # ---------------------------------------------------
     # 📧 FILTER COMMITS BY EMAIL / AUTHOR
     # ---------------------------------------------------
+    # `git bymail <name-or-pattern>` — graph log filtered by author
     bymail     = "!f() { git log --all --author=\"$1\" --oneline --graph --decorate; }; f"
+    # Same as `bymail` but with full stats (files/lines changed) per commit
     bymails    = "!f() { git log --all --author=\"$1\" --stat; }; f"
+    # `git byemail <pattern>` — grep commits by author email address
     byemail    = "!f() { git log --all --format='%C(yellow)%h%Creset %C(cyan)%ae%Creset %s' | grep -i \"$1\"; }; f"
+    # List every unique "Name <email>" pair that has ever committed
     authors    = "!git log --all --format='%an <%ae>' | sort | uniq"
+    # Graph log of just your own commits (uses your configured user.email)
     mylog      = "!git log --all --author=\"$(git config user.email)\" --oneline --graph --decorate"
+    # Detailed version of `mylog`, with dates and author info
     myhist     = "!git log --all --author=\"$(git config user.email)\" --pretty=format:'%C(yellow)%h%Creset %Cgreen%ad%Creset | %s %Cblue[%an <%ae>] %Creset' --graph --date=short"
+    # Commit counts grouped by author email, busiest first
     emailcount = "!git log --all --format='%ae' | sort | uniq -c | sort -nr"
 
     # ---------------------------------------------------
     # 🌿 BRANCH MANAGEMENT
     # ---------------------------------------------------
+    # List branches
     br         = branch
+    # Switch branches
     co         = checkout
+    # Create and switch to a new branch: `git cob <name>`
     cob        = checkout -b
+    # Switch to main
     com        = checkout main
+    # Switch to develop
     cod        = checkout develop
+    # `git cb <name>` — create a branch and push it upstream in one step
     cb         = "!f() { git checkout -b \"$1\" && git push -u origin \"$1\"; }; f"
+    # `git rb <old> <new>` — rename a branch locally and on the remote
     rb         = "!f() { git branch -m \"$1\" \"$2\" && git push origin :\"$1\" && git push -u origin \"$2\"; }; f"
+    # `git dbr <name>` — force-delete a branch locally and on the remote
     dbr        = "!f() { git branch -D \"$1\" && git push origin --delete \"$1\"; }; f"
+    # Delete local branches already merged into the current branch (main/master/develop/dev protected)
     cleanup    = "!git branch --merged | egrep -v '(^\\*|main|master|develop|dev)' | xargs git branch -d"
+    # Show local branches whose upstream was deleted on the remote
     gone       = "!git fetch -p && git branch -vv | grep ': gone]'"
+    # Fetch every remote and prune deleted remote-tracking branches
     pruneall   = "!git fetch --all --prune"
 
     # ---------------------------------------------------
     # 🔀 REBASE & MERGE
     # ---------------------------------------------------
+    # Continue a rebase after resolving conflicts
     rc         = rebase --continue
+    # Abort an in-progress rebase
     ra         = rebase --abort
+    # Skip the current commit during a rebase
     rs         = rebase --skip
+    # Start an interactive rebase: `git ri <base>`
     ri         = rebase -i
+    # Add staged changes to the previous commit, keeping its message
     amend      = commit --amend --no-edit
 
     # ---------------------------------------------------
     # ✅ COMMITS
     # ---------------------------------------------------
+    # Stage every change in the working tree
     aa         = add .
+    # Interactively stage changes hunk by hunk
     ap         = add -p
+    # `git cm "message"` — commit with a message
     cm         = commit -m
+    # Stage all tracked, modified files and commit with a message
     ca         = commit -am
+    # Clone a repository
     cl         = clone
+    # Same as `amend` — quick fix to the last commit without changing its message
     fix        = commit --amend --no-edit
+    # Amend the last commit and open an editor to change its message
     reword     = commit --amend
+    # Undo the last commit but keep its changes staged
     undo       = reset --soft HEAD~1
+    # Discard the last commit and its changes entirely (destructive)
     nuke       = reset --hard HEAD~1
+    # Unstage everything without touching the working tree
     unstage    = reset HEAD --
+    # `git squash <n>` — squash the last n commits into one (opens editor for the message)
     squash     = "!f() { git reset --soft HEAD~$1 && git commit; }; f"
+    # `git fixup <commit>` — create a fixup! commit targeting an earlier commit (use with rebase -i --autosquash)
     fixup      = "!f() { git commit --fixup=$1; }; f"
+    # Stage everything and commit as "WIP" — quick checkpoint, not meant to be pushed as-is
     wip        = "!git add . && git commit -m 'WIP'"
 
     # ---------------------------------------------------
     # 📦 STASH HELPERS
     # ---------------------------------------------------
+    # `git ss "message"` — stash changes with a description
     ss         = "!f() { git stash push -m \"$1\"; }; f"
+    # List all stashes
     sl         = stash list
+    # Reapply the most recent stash, keeping it in the stash list
     sa         = stash apply
+    # Reapply the most recent stash and remove it from the stash list
     sp         = stash pop
+    # Delete the most recent stash
     sd         = stash drop
 
     # ---------------------------------------------------
     # 🌍 REMOTE & SYNC
     # ---------------------------------------------------
+    # Fetch from origin only
     f          = fetch origin
+    # Pull the current branch
     pl         = pull
+    # Push the current branch
     ps         = push
+    # Push and set the current branch's upstream
     psu        = push -u
+    # Fetch every remote and prune deleted remote-tracking branches (alias of `pruneall`)
     sync       = "!git fetch --all --prune"
+    # Show details about the origin remote (URL, tracked branches)
     rso        = remote show origin
+    # `git ccl <url>` — clone a repo and cd into the resulting folder
     ccl        = "!f() { git clone \"$1\" && cd \"$(basename \"$1\" .git)\"; }; f"
 
     # ---------------------------------------------------
     # 🛠️ UTILITIES & HELPMATES
     # ---------------------------------------------------
+    # Compact one-line status
     s          = status --short
+    # Full status
     st         = status
+    # List all global git config values
     gcl        = config --global --list
+    # List all configured aliases and what they expand to
     al         = "!git config --get-regexp ^alias\\\\."
+    # Dump the raw contents of the repo's local .git/config file
     type       = cat .git/config
+    # List files ignored via .gitignore that are still tracked in the index
     ignored    = "!git ls-files -v | grep '^h'"
+    # Same as `al` — list all configured aliases
     aliases    = config --get-regexp '^alias\\.'
+    # Print the absolute path to the repository's top-level directory
     root       = rev-parse --show-toplevel
+    # Print the current branch name
     current    = branch --show-current
+    # Print the configured user.email
     whoami     = config user.email
+    # Open the origin remote's URL in the default browser
     open       = "!start $(git remote get-url origin)"
+    # `git aliasify <name> "<command>"` — define a new global alias
     aliasify   = "!f() { git config --global alias.$1 \"$2\"; }; f"
+    # `git unaliasify <name>` — remove a global alias
     unaliasify = "!f() { git config --global --unset alias.$1; }; f"
 
     # ---------------------------------------------------
     # 🏷️ TAGS
     # ---------------------------------------------------
+    # List all tags
     tags       = tag -l
+    # `git tc <tag> <commit> "<message>"` — create an annotated tag
     tc         = "!f() { git tag -a \"$1\" \"$2\" -m \"$3\"; }; f"
+    # `git dt <tag>` — delete a tag locally and on the remote
     dt         = "!f() { git tag -d \"$1\" && git push --delete origin \"$1\"; }; f"
 
     # ---------------------------------------------------
     # ⚡ WORKTREE
     # ---------------------------------------------------
+    # List all worktrees
     wt         = worktree list
+    # `git wta <branch>` — add a new worktree for a branch as a sibling folder
     wta        = "!f() { git worktree add ../$1 $1; }; f"
+    # `git wtr <branch>` — remove the sibling worktree for a branch
     wtr        = "!f() { git worktree remove ../$1; }; f"
 
-	byAuthor = "!f() { git log --all --author=\"$1\" --oneline --graph --decorate; }; f"
+    # Same as `bymail` — kept for backwards compatibility with older muscle memory
+    byAuthor = "!f() { git log --all --author=\"$1\" --oneline --graph --decorate; }; f"
 [credential]
 	helper = manager
 [core]

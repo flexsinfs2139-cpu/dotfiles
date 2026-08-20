@@ -1,0 +1,32 @@
+# =========================================================
+# ATUIN CONFIGURATION
+# Shell history search — replaces Ctrl+R / UpArrow with a
+# searchable, fuzzy-matched, cross-session history.
+# Full reference: https://docs.atuin.sh/configuration/config/
+# =========================================================
+
+# Full-screen fuzzy search UI (vs. "compact" inline list)
+search_mode = "fuzzy"
+
+# Search across history from every shell session, not just this one
+filter_mode = "global"
+
+# Auto-pick light/dark based on terminal
+style = "auto"
+
+# Show the full command preview above the results list
+show_preview = true
+
+# Don't nag on every shell startup
+update_check = false
+
+# ---------------------------------------------------------
+# Sync (optional)
+# ---------------------------------------------------------
+# Atuin can sync history across machines via its hosted service
+# or a self-hosted server. Disabled by default — run `atuin
+# register` / `atuin login` first, then flip auto_sync to true.
+
+auto_sync = false
+# sync_address = "https://api.atuin.sh"
+# sync_frequency = "5m"

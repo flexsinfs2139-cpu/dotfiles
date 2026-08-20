@@ -34,6 +34,19 @@ if (Get-Module -ListAvailable PSReadLine) {
 }
 
 # ---------------------------------------------------------
+# Atuin (shell history search & sync)
+# ---------------------------------------------------------
+# Must load after PSReadLine so it can take over Ctrl+R / UpArrow
+# for its fuzzy history search UI.
+
+if (Get-Command atuin -ErrorAction SilentlyContinue) {
+    Invoke-Expression (& { (atuin init powershell) -join "`n" })
+}
+else {
+    Write-Warning "atuin command not found. Run 'winget install Atuinsh.Atuin'."
+}
+
+# ---------------------------------------------------------
 # Oh My Posh
 # ---------------------------------------------------------
 
