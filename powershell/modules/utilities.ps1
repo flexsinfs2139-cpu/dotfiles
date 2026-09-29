@@ -218,49 +218,76 @@ function KeepAwake {
         Keeps the screen on and prevents the PC from sleeping.
     .DESCRIPTION
         Uses the Windows SetThreadExecutionState API to keep the display and
-        system awake while running. Use -SimulateInput to also send a harmless
-        F15 keypress, which resets the user idle timer (keeps Teams/Slack
-        "Available" and stops policy-enforced screen locks).
+        system awake, and nudges the mouse cursor in all directions each interval
+        so the idle timer resets (keeps Teams/Slack "Available" and stops
+        policy-enforced screen locks). The cursor returns to where it was.
         Press Ctrl+C to stop.
     .EXAMPLE
         KeepAwake
     .EXAMPLE
-        KeepAwake -Minutes 90 -SimulateInput
+        KeepAwake -Minutes 90 -Pixels 20
     #>
     [CmdletBinding()]
     param(
         # How long to stay awake. 0 = until Ctrl+C.
         [int]$Minutes = 0,
 
-        # Send an F15 keypress each interval to reset the idle timer.
-        [switch]$SimulateInput,
+        # How far to move the cursor in each direction.
+        [int]$Pixels = 1,
 
-        [int]$IntervalSeconds = 60
+        [int]$IntervalSeconds = 10
     )
 
-    if (-not ('KeepAwake.Power' -as [type])) {
-        Add-Type -Namespace KeepAwake -Name Power -MemberDefinition @'
+    if (-not ('KeepAwake.Native' -as [type])) {
+        Add-Type -Namespace KeepAwake -Name Native -MemberDefinition @'
 [DllImport("kernel32.dll")]
 private static extern uint SetThreadExecutionState(uint esFlags);
+
+[DllImport("user32.dll")]
+private static extern bool GetCursorPos(out POINT point);
+
+[DllImport("user32.dll")]
+private static extern bool SetCursorPos(int x, int y);
+
+[DllImport("user32.dll")]
+private static extern void mouse_event(uint flags, int dx, int dy, uint data, UIntPtr extraInfo);
+
+private struct POINT { public int X; public int Y; }
 
 // ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
 public static void Enable()  { SetThreadExecutionState(0x80000000u | 0x1u | 0x2u); }
 public static void Disable() { SetThreadExecutionState(0x80000000u); }
+
+// Move the cursor left, right, up and down, then put it back where it was.
+public static void Jiggle(int pixels) {
+    POINT p;
+    GetCursorPos(out p);
+
+    int[,] offsets = { { -pixels, 0 }, { pixels, 0 }, { 0, -pixels }, { 0, pixels } };
+    for (int i = 0; i < offsets.GetLength(0); i++) {
+        SetCursorPos(p.X + offsets[i, 0], p.Y + offsets[i, 1]);
+        System.Threading.Thread.Sleep(100);
+    }
+    SetCursorPos(p.X, p.Y);
+
+    // SetCursorPos alone doesn't always count as user input;
+    // a zero-distance mouse move does, which resets the idle timer.
+    mouse_event(0x0001, 0, 0, 0, UIntPtr.Zero);
+}
 '@
     }
 
-    $shell   = if ($SimulateInput) { New-Object -ComObject WScript.Shell }
     $endTime = if ($Minutes -gt 0) { (Get-Date).AddMinutes($Minutes) }
 
     try {
-        [KeepAwake.Power]::Enable()
+        [KeepAwake.Native]::Enable()
 
         while (-not $endTime -or (Get-Date) -lt $endTime) {
-            if ($shell) { $shell.SendKeys('{F15}') }
+            [KeepAwake.Native]::Jiggle($Pixels)
             Start-Sleep -Seconds $IntervalSeconds
         }
     }
     finally {
-        [KeepAwake.Power]::Disable()
+        [KeepAwake.Native]::Disable()
     }
 }
