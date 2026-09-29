@@ -211,3 +211,56 @@ function Find-CodeUsage {
 
     return $results
 }
+
+function KeepAwake {
+    <#
+    .SYNOPSIS
+        Keeps the screen on and prevents the PC from sleeping.
+    .DESCRIPTION
+        Uses the Windows SetThreadExecutionState API to keep the display and
+        system awake while running. Use -SimulateInput to also send a harmless
+        F15 keypress, which resets the user idle timer (keeps Teams/Slack
+        "Available" and stops policy-enforced screen locks).
+        Press Ctrl+C to stop.
+    .EXAMPLE
+        KeepAwake
+    .EXAMPLE
+        KeepAwake -Minutes 90 -SimulateInput
+    #>
+    [CmdletBinding()]
+    param(
+        # How long to stay awake. 0 = until Ctrl+C.
+        [int]$Minutes = 0,
+
+        # Send an F15 keypress each interval to reset the idle timer.
+        [switch]$SimulateInput,
+
+        [int]$IntervalSeconds = 60
+    )
+
+    if (-not ('KeepAwake.Power' -as [type])) {
+        Add-Type -Namespace KeepAwake -Name Power -MemberDefinition @'
+[DllImport("kernel32.dll")]
+private static extern uint SetThreadExecutionState(uint esFlags);
+
+// ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+public static void Enable()  { SetThreadExecutionState(0x80000000u | 0x1u | 0x2u); }
+public static void Disable() { SetThreadExecutionState(0x80000000u); }
+'@
+    }
+
+    $shell   = if ($SimulateInput) { New-Object -ComObject WScript.Shell }
+    $endTime = if ($Minutes -gt 0) { (Get-Date).AddMinutes($Minutes) }
+
+    try {
+        [KeepAwake.Power]::Enable()
+
+        while (-not $endTime -or (Get-Date) -lt $endTime) {
+            if ($shell) { $shell.SendKeys('{F15}') }
+            Start-Sleep -Seconds $IntervalSeconds
+        }
+    }
+    finally {
+        [KeepAwake.Power]::Disable()
+    }
+}
