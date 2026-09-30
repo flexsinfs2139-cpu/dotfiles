@@ -218,8 +218,8 @@ function KeepAwake {
         Keeps the screen on and prevents the PC from sleeping.
     .DESCRIPTION
         Uses the Windows SetThreadExecutionState API to keep the display and
-        system awake, and nudges the mouse cursor in all directions each interval
-        so the idle timer resets (keeps Teams/Slack "Available" and stops
+        system awake, and nudges the mouse cursor in all directions every minute
+        (see -IntervalSeconds) so the idle timer resets (keeps Teams/Slack "Available" and stops
         policy-enforced screen locks). The cursor returns to where it was.
         Press Ctrl+C to stop.
     .EXAMPLE
@@ -235,7 +235,8 @@ function KeepAwake {
         # How far to move the cursor in each direction.
         [int]$Pixels = 1,
 
-        [int]$IntervalSeconds = 10
+        # How often to move the cursor.
+        [int]$IntervalSeconds = 60
     )
 
     if (-not ('KeepAwake.Native' -as [type])) {
