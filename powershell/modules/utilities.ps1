@@ -86,6 +86,225 @@ function ss {
     Write-Host "Screenshot saved: $((Resolve-Path ".\$Name").Path)"
 }
 
+function rnlog {
+    <#
+    .SYNOPSIS
+        Streams React Native Android logs (ReactNativeJS) as pretty-printed JSON.
+    .DESCRIPTION
+        Runs 'adb logcat -s ReactNativeJS', strips the logcat metadata
+        (timestamp, PID, TID, level, tag) and buffers multi-line JSON until the
+        object/array is complete, then re-formats it with ConvertTo-Json.
+        Non-JSON log lines are printed as plain text. Malformed entries are
+        reported and skipped. Waits for the device to reconnect if logcat stops.
+        Press Ctrl+C to stop.
+    .EXAMPLE
+        rnlog
+    .EXAMPLE
+        rnlog -Clear
+    .EXAMPLE
+        rnlog -Raw
+    .EXAMPLE
+        rnlog -Serial emulator-5554
+    .EXAMPLE
+        rnlog -NoColor > rn.log
+    #>
+    [CmdletBinding()]
+    param(
+        # Clear the existing logcat buffer before starting.
+        [switch]$Clear,
+
+        # Show the original ReactNativeJS output without JSON formatting.
+        [switch]$Raw,
+
+        # Device serial to use when more than one device is connected.
+        [string]$Serial,
+
+        # Max nesting depth for ConvertTo-Json.
+        [int]$Depth = 20,
+
+        # Disable JSON syntax colors (e.g. when redirecting to a file).
+        [switch]$NoColor
+    )
+
+    if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
+        Write-Error "adb not found in PATH. Install Android SDK Platform-Tools and add its folder to PATH."
+        return
+    }
+
+    # --- Device check ---
+    $devices = @(adb devices | Select-Object -Skip 1 | Where-Object { $_ -match '^(\S+)\s+(\S+)' } | ForEach-Object {
+        [PSCustomObject]@{ Serial = $Matches[1]; State = $Matches[2] }
+    })
+
+    if ($Serial) {
+        $device = $devices | Where-Object Serial -eq $Serial
+        if (-not $device) {
+            Write-Error "Device '$Serial' not found. Connected: $(if ($devices) { $devices.Serial -join ', ' } else { 'none' })"
+            return
+        }
+    }
+    elseif ($devices.Count -eq 0) {
+        Write-Error "No Android device connected. Connect a device (USB debugging on) or start an emulator."
+        return
+    }
+    elseif ($devices.Count -gt 1 -and -not $env:ANDROID_SERIAL) {
+        Write-Error "Multiple devices connected: $($devices.Serial -join ', '). Use: rnlog -Serial <serial>"
+        return
+    }
+    else {
+        $device = if ($env:ANDROID_SERIAL) { $devices | Where-Object Serial -eq $env:ANDROID_SERIAL } else { $devices[0] }
+    }
+
+    if ($device -and $device.State -ne 'device') {
+        Write-Error "Device '$($device.Serial)' is '$($device.State)'. Accept the USB debugging prompt on the device or reconnect it."
+        return
+    }
+
+    $adbArgs = if ($Serial) { @('-s', $Serial) } else { @() }
+
+    if ($Clear) {
+        adb @adbArgs logcat -c
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Failed to clear logcat buffer; continuing." }
+    }
+
+    # --- JSON buffer state ---
+    $buffer = [System.Text.StringBuilder]::new()
+    $lineCount = 0
+    $depthLevel = 0
+    $inString = $false
+    $escaped = $false
+    $entryHeader = $null
+
+    # --- JSON syntax colors ---
+    $useColor = -not $NoColor -and $PSStyle.OutputRendering -ne 'PlainText' -and -not [Console]::IsOutputRedirected
+    $jsonColors = @{
+        key    = $PSStyle.Foreground.Cyan
+        string = $PSStyle.Foreground.Green
+        number = $PSStyle.Foreground.Yellow
+        bool   = $PSStyle.Foreground.Magenta
+        null   = $PSStyle.Foreground.BrightBlack
+    }
+    $jsonTokens = '(?<key>"(?:[^"\\]|\\.)*")(?=\s*:)|(?<string>"(?:[^"\\]|\\.)*")|(?<number>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(?<bool>\b(?:true|false)\b)|(?<null>\bnull\b)'
+
+    # Wraps each JSON token (key, string, number, bool, null) in its ANSI color.
+    $colorize = {
+        param([string]$Json)
+
+        if (-not $useColor) { return $Json }
+
+        $Json -replace $jsonTokens, {
+            foreach ($name in 'key', 'string', 'number', 'bool', 'null') {
+                if ($_.Groups[$name].Success) {
+                    return "$($jsonColors[$name])$($_.Value)$($PSStyle.Reset)"
+                }
+            }
+        }
+    }
+
+    # Formats the buffered entry (or reports it as malformed) and resets the state.
+    # Dot-sourced so the reset applies to the variables above.
+    $flush = {
+        param([bool]$Incomplete)
+
+        $text = $buffer.ToString().TrimEnd()
+
+        if ($text) {
+            try {
+                if ($Incomplete) { throw "Incomplete JSON (missing closing bracket)." }
+
+                $parsed = ConvertFrom-Json -InputObject $text -AsHashtable -NoEnumerate -DateKind String -ErrorAction Stop
+                & $colorize (ConvertTo-Json -InputObject $parsed -Depth $Depth)
+            }
+            catch {
+                if ($lineCount -eq 1) {
+                    # Single line that merely starts with '{' or '[', e.g. "[INFO] ready"
+                    $text
+                }
+                else {
+                    Write-Host "rnlog: skipped malformed JSON entry ($lineCount lines): $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Host $text -ForegroundColor DarkGray
+                }
+            }
+        }
+
+        [void]$buffer.Clear()
+        $depthLevel = 0
+        $inString = $false
+        $escaped = $false
+    }
+
+    # threadtime format: "MM-DD HH:MM:SS.mmm  PID  TID L Tag: message"
+    $linePattern = '^(\d\d-\d\d\s+\d\d:\d\d:\d\d\.\d+\s+\d+\s+\d+)\s+[VDIWEFA]\s+ReactNativeJS\s*: ?(.*)$'
+
+    $originalEncoding = [Console]::OutputEncoding
+
+    try {
+        # adb emits UTF-8; decode it as such so non-ASCII API data isn't mangled.
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+        Write-Host "Listening for ReactNativeJS logs on $($device.Serial)... (Ctrl+C to stop)" -ForegroundColor Cyan
+
+        while ($true) {
+            if ($Raw) {
+                adb @adbArgs logcat -s ReactNativeJS
+            }
+            else {
+                adb @adbArgs logcat -v threadtime -s ReactNativeJS | ForEach-Object {
+                    if ($_ -notmatch $linePattern) { return }
+
+                    $header = $Matches[1]
+                    $message = $Matches[2].TrimEnd("`r")
+
+                    # Every line of one console.log call shares the same logcat header.
+                    # A new header while still buffering means the previous entry was cut off.
+                    if ($buffer.Length -gt 0 -and $header -ne $entryHeader) {
+                        . $flush $true
+                    }
+
+                    if ($buffer.Length -eq 0) {
+                        if ($message -notmatch '^\s*[\[{]') {
+                            $message
+                            return
+                        }
+                        $entryHeader = $header
+                        $lineCount = 0
+                    }
+
+                    [void]$buffer.AppendLine($message)
+                    $lineCount++
+
+                    # Track bracket depth, ignoring brackets inside JSON strings.
+                    foreach ($ch in $message.ToCharArray()) {
+                        if ($inString) {
+                            if ($escaped) { $escaped = $false }
+                            elseif ($ch -eq '\') { $escaped = $true }
+                            elseif ($ch -eq '"') { $inString = $false }
+                        }
+                        elseif ($ch -eq '"') { $inString = $true }
+                        elseif ($ch -eq '{' -or $ch -eq '[') { $depthLevel++ }
+                        elseif ($ch -eq '}' -or $ch -eq ']') { $depthLevel-- }
+                    }
+
+                    if ($depthLevel -le 0) {
+                        . $flush $false
+                    }
+                }
+
+                if ($buffer.Length -gt 0) {
+                    . $flush $true
+                }
+            }
+
+            # logcat only exits on its own when the device goes away.
+            Write-Warning "logcat stopped (device disconnected?). Waiting for device... (Ctrl+C to stop)"
+            adb @adbArgs wait-for-device
+        }
+    }
+    finally {
+        [Console]::OutputEncoding = $originalEncoding
+    }
+}
+
 function Get-FolderSize {
     param(
         [string]$Path = (Get-Location).Path
