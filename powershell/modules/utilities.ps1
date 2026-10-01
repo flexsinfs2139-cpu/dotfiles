@@ -173,7 +173,7 @@ function rnlog {
     $depthLevel = 0
     $inString = $false
     $escaped = $false
-    $entryHeader = $null
+    $entrySource = $null
 
     # --- JSON syntax colors ---
     $useColor = -not $NoColor -and $PSStyle.OutputRendering -ne 'PlainText' -and -not [Console]::IsOutputRedirected
@@ -234,7 +234,7 @@ function rnlog {
     }
 
     # threadtime format: "MM-DD HH:MM:SS.mmm  PID  TID L Tag: message"
-    $linePattern = '^(\d\d-\d\d\s+\d\d:\d\d:\d\d\.\d+\s+\d+\s+\d+)\s+[VDIWEFA]\s+ReactNativeJS\s*: ?(.*)$'
+    $linePattern = '^\d\d-\d\d\s+\d\d:\d\d:\d\d\.\d+\s+(\d+\s+\d+)\s+[VDIWEFA]\s+ReactNativeJS\s*: ?(.*)$'
 
     # logcat runs as a child process read asynchronously, so key presses are
     # handled even while no log lines arrive.
@@ -286,12 +286,15 @@ function rnlog {
 
                 if ($line -notmatch $linePattern) { continue }
 
-                $header = $Matches[1]
+                $source = $Matches[1]
                 $message = $Matches[2].TrimEnd("`r")
 
-                # Every line of one console.log call shares the same logcat header.
-                # A new header while still buffering means the previous entry was cut off.
-                if ($buffer.Length -gt 0 -and $header -ne $entryHeader) {
+                # Android splits a long message into several records (same PID/TID,
+                # newer timestamp), so an entry continues while the same thread logs.
+                # Pretty-printed JSON indents everything between its outer brackets, so a
+                # line starting at column 0 with anything but '}' or ']' (or a line from
+                # another thread) means the previous entry was cut off.
+                if ($buffer.Length -gt 0 -and ($source -ne $entrySource -or $message -match '^[^\s\]}]')) {
                     . $flush $true
                 }
 
@@ -300,7 +303,7 @@ function rnlog {
                         $message
                         continue
                     }
-                    $entryHeader = $header
+                    $entrySource = $source
                     $lineCount = 0
                 }
 
