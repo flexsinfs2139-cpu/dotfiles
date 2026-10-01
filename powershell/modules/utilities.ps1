@@ -96,7 +96,7 @@ function rnlog {
         object/array is complete, then re-formats it with ConvertTo-Json.
         Non-JSON log lines are printed as plain text. Malformed entries are
         reported and skipped. Waits for the device to reconnect if logcat stops.
-        Press Ctrl+C to stop.
+        Press Ctrl+L to clear the screen while listening, Ctrl+C to stop.
     .EXAMPLE
         rnlog
     .EXAMPLE
@@ -236,72 +236,107 @@ function rnlog {
     # threadtime format: "MM-DD HH:MM:SS.mmm  PID  TID L Tag: message"
     $linePattern = '^(\d\d-\d\d\s+\d\d:\d\d:\d\d\.\d+\s+\d+\s+\d+)\s+[VDIWEFA]\s+ReactNativeJS\s*: ?(.*)$'
 
-    $originalEncoding = [Console]::OutputEncoding
+    # logcat runs as a child process read asynchronously, so key presses are
+    # handled even while no log lines arrive.
+    $logcatArgs = $adbArgs + $(if ($Raw) { @('logcat', '-s', 'ReactNativeJS') } else { @('logcat', '-v', 'threadtime', '-s', 'ReactNativeJS') })
+    $adbPath = (Get-Command adb -CommandType Application | Select-Object -First 1).Source
+    $keyboard = -not [Console]::IsInputRedirected
 
-    try {
+    $banner = {
+        Write-Host "Listening for ReactNativeJS logs on $($device.Serial)... (Ctrl+L: clear screen, Ctrl+C: stop)" -ForegroundColor Cyan
+    }
+
+    & $banner
+
+    while ($true) {
+        $psi = [System.Diagnostics.ProcessStartInfo]::new($adbPath)
+        $logcatArgs | ForEach-Object { $psi.ArgumentList.Add($_) }
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
         # adb emits UTF-8; decode it as such so non-ASCII API data isn't mangled.
-        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
 
-        Write-Host "Listening for ReactNativeJS logs on $($device.Serial)... (Ctrl+C to stop)" -ForegroundColor Cyan
+        $process = [System.Diagnostics.Process]::Start($psi)
 
-        while ($true) {
-            if ($Raw) {
-                adb @adbArgs logcat -s ReactNativeJS
-            }
-            else {
-                adb @adbArgs logcat -v threadtime -s ReactNativeJS | ForEach-Object {
-                    if ($_ -notmatch $linePattern) { return }
+        try {
+            $readTask = $process.StandardOutput.ReadLineAsync()
 
-                    $header = $Matches[1]
-                    $message = $Matches[2].TrimEnd("`r")
+            while ($true) {
+                # Ctrl+L clears the screen; listening continues.
+                while ($keyboard -and [Console]::KeyAvailable) {
+                    $key = [Console]::ReadKey($true)
 
-                    # Every line of one console.log call shares the same logcat header.
-                    # A new header while still buffering means the previous entry was cut off.
-                    if ($buffer.Length -gt 0 -and $header -ne $entryHeader) {
-                        . $flush $true
-                    }
-
-                    if ($buffer.Length -eq 0) {
-                        if ($message -notmatch '^\s*[\[{]') {
-                            $message
-                            return
-                        }
-                        $entryHeader = $header
-                        $lineCount = 0
-                    }
-
-                    [void]$buffer.AppendLine($message)
-                    $lineCount++
-
-                    # Track bracket depth, ignoring brackets inside JSON strings.
-                    foreach ($ch in $message.ToCharArray()) {
-                        if ($inString) {
-                            if ($escaped) { $escaped = $false }
-                            elseif ($ch -eq '\') { $escaped = $true }
-                            elseif ($ch -eq '"') { $inString = $false }
-                        }
-                        elseif ($ch -eq '"') { $inString = $true }
-                        elseif ($ch -eq '{' -or $ch -eq '[') { $depthLevel++ }
-                        elseif ($ch -eq '}' -or $ch -eq ']') { $depthLevel-- }
-                    }
-
-                    if ($depthLevel -le 0) {
-                        . $flush $false
+                    if ($key.Key -eq 'L' -and ($key.Modifiers -band [ConsoleModifiers]::Control)) {
+                        Clear-Host
+                        & $banner
                     }
                 }
 
-                if ($buffer.Length -gt 0) {
+                # Short wait so Ctrl+C and key presses stay responsive.
+                if (-not $readTask.Wait(100)) { continue }
+
+                $line = $readTask.Result
+                if ($null -eq $line) { break }
+                $readTask = $process.StandardOutput.ReadLineAsync()
+
+                if ($Raw) {
+                    $line
+                    continue
+                }
+
+                if ($line -notmatch $linePattern) { continue }
+
+                $header = $Matches[1]
+                $message = $Matches[2].TrimEnd("`r")
+
+                # Every line of one console.log call shares the same logcat header.
+                # A new header while still buffering means the previous entry was cut off.
+                if ($buffer.Length -gt 0 -and $header -ne $entryHeader) {
                     . $flush $true
                 }
+
+                if ($buffer.Length -eq 0) {
+                    if ($message -notmatch '^\s*[\[{]') {
+                        $message
+                        continue
+                    }
+                    $entryHeader = $header
+                    $lineCount = 0
+                }
+
+                [void]$buffer.AppendLine($message)
+                $lineCount++
+
+                # Track bracket depth, ignoring brackets inside JSON strings.
+                foreach ($ch in $message.ToCharArray()) {
+                    if ($inString) {
+                        if ($escaped) { $escaped = $false }
+                        elseif ($ch -eq '\') { $escaped = $true }
+                        elseif ($ch -eq '"') { $inString = $false }
+                    }
+                    elseif ($ch -eq '"') { $inString = $true }
+                    elseif ($ch -eq '{' -or $ch -eq '[') { $depthLevel++ }
+                    elseif ($ch -eq '}' -or $ch -eq ']') { $depthLevel-- }
+                }
+
+                if ($depthLevel -le 0) {
+                    . $flush $false
+                }
             }
 
-            # logcat only exits on its own when the device goes away.
-            Write-Warning "logcat stopped (device disconnected?). Waiting for device... (Ctrl+C to stop)"
-            adb @adbArgs wait-for-device
+            if ($buffer.Length -gt 0) {
+                . $flush $true
+            }
         }
-    }
-    finally {
-        [Console]::OutputEncoding = $originalEncoding
+        finally {
+            # Runs on Ctrl+C too, so no orphaned logcat process is left behind.
+            if (-not $process.HasExited) { $process.Kill() }
+            $process.Dispose()
+        }
+
+        # logcat only exits on its own when the device goes away.
+        Write-Warning "logcat stopped (device disconnected?). Waiting for device... (Ctrl+C to stop)"
+        adb @adbArgs wait-for-device
     }
 }
 
