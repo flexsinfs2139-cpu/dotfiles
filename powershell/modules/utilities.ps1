@@ -96,6 +96,7 @@ function rnlog {
         object/array is complete, then re-formats it with ConvertTo-Json.
         Non-JSON log lines are printed as plain text. Malformed entries are
         reported and skipped. Waits for the device to reconnect if logcat stops.
+        Use -Save or -OutFile to also save the log (plain text, no colors).
         Press Ctrl+L to clear the screen while listening, Ctrl+C to stop.
     .EXAMPLE
         rnlog
@@ -106,7 +107,9 @@ function rnlog {
     .EXAMPLE
         rnlog -Serial emulator-5554
     .EXAMPLE
-        rnlog -NoColor > rn.log
+        rnlog -Save
+    .EXAMPLE
+        rnlog -OutFile .\logspi.log
     #>
     [CmdletBinding()]
     param(
@@ -123,7 +126,13 @@ function rnlog {
         [int]$Depth = 20,
 
         # Disable JSON syntax colors (e.g. when redirecting to a file).
-        [switch]$NoColor
+        [switch]$NoColor,
+
+        # Save the log to rnlog_<timestamp>.log in the current folder.
+        [switch]$Save,
+
+        # Save the log to this file (appended to if it already exists).
+        [string]$OutFile
     )
 
     if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
@@ -167,6 +176,27 @@ function rnlog {
         if ($LASTEXITCODE -ne 0) { Write-Warning "Failed to clear logcat buffer; continuing." }
     }
 
+    # --- Log file ---
+    $writer = $null
+
+    if ($Save -and -not $OutFile) {
+        $OutFile = "rnlog_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    }
+
+    if ($OutFile) {
+        try {
+            $logPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutFile)
+            New-Item -ItemType Directory -Path (Split-Path -Parent $logPath) -Force | Out-Null
+            # Append as UTF-8 (no BOM), flushed per line so nothing is lost on Ctrl+C.
+            $writer = [System.IO.StreamWriter]::new($logPath, $true, [System.Text.UTF8Encoding]::new($false))
+            $writer.AutoFlush = $true
+        }
+        catch {
+            Write-Error "Cannot write log file '$OutFile': $($_.Exception.Message)"
+            return
+        }
+    }
+
     # --- JSON buffer state ---
     $buffer = [System.Text.StringBuilder]::new()
     $lineCount = 0
@@ -201,6 +231,14 @@ function rnlog {
         }
     }
 
+    # Writes a line to the screen and, with -Save/-OutFile, to the log file (without colors).
+    $emit = {
+        param([string]$Text, [switch]$Json)
+
+        if ($writer) { $writer.WriteLine($Text) }
+        if ($Json) { & $colorize $Text } else { $Text }
+    }
+
     # Formats the buffered entry (or reports it as malformed) and resets the state.
     # Dot-sourced so the reset applies to the variables above.
     $flush = {
@@ -213,16 +251,18 @@ function rnlog {
                 if ($Incomplete) { throw "Incomplete JSON (missing closing bracket)." }
 
                 $parsed = ConvertFrom-Json -InputObject $text -AsHashtable -NoEnumerate -DateKind String -ErrorAction Stop
-                & $colorize (ConvertTo-Json -InputObject $parsed -Depth $Depth)
+                & $emit (ConvertTo-Json -InputObject $parsed -Depth $Depth) -Json
             }
             catch {
                 if ($lineCount -eq 1) {
                     # Single line that merely starts with '{' or '[', e.g. "[INFO] ready"
-                    $text
+                    & $emit $text
                 }
                 else {
-                    Write-Host "rnlog: skipped malformed JSON entry ($lineCount lines): $($_.Exception.Message)" -ForegroundColor Red
+                    $notice = "rnlog: skipped malformed JSON entry ($lineCount lines): $($_.Exception.Message)"
+                    Write-Host $notice -ForegroundColor Red
                     Write-Host $text -ForegroundColor DarkGray
+                    if ($writer) { $writer.WriteLine($notice); $writer.WriteLine($text) }
                 }
             }
         }
@@ -244,102 +284,108 @@ function rnlog {
 
     $banner = {
         Write-Host "Listening for ReactNativeJS logs on $($device.Serial)... (Ctrl+L: clear screen, Ctrl+C: stop)" -ForegroundColor Cyan
+        if ($writer) { Write-Host "Saving to $logPath" -ForegroundColor DarkGray }
     }
 
-    & $banner
+    try {
+        & $banner
 
-    while ($true) {
-        $psi = [System.Diagnostics.ProcessStartInfo]::new($adbPath)
-        $logcatArgs | ForEach-Object { $psi.ArgumentList.Add($_) }
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        # adb emits UTF-8; decode it as such so non-ASCII API data isn't mangled.
-        $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        while ($true) {
+            $psi = [System.Diagnostics.ProcessStartInfo]::new($adbPath)
+            $logcatArgs | ForEach-Object { $psi.ArgumentList.Add($_) }
+            $psi.UseShellExecute = $false
+            $psi.RedirectStandardOutput = $true
+            # adb emits UTF-8; decode it as such so non-ASCII API data isn't mangled.
+            $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
 
-        $process = [System.Diagnostics.Process]::Start($psi)
+            $process = [System.Diagnostics.Process]::Start($psi)
 
-        try {
-            $readTask = $process.StandardOutput.ReadLineAsync()
-
-            while ($true) {
-                # Ctrl+L clears the screen; listening continues.
-                while ($keyboard -and [Console]::KeyAvailable) {
-                    $key = [Console]::ReadKey($true)
-
-                    if ($key.Key -eq 'L' -and ($key.Modifiers -band [ConsoleModifiers]::Control)) {
-                        Clear-Host
-                        & $banner
-                    }
-                }
-
-                # Short wait so Ctrl+C and key presses stay responsive.
-                if (-not $readTask.Wait(100)) { continue }
-
-                $line = $readTask.Result
-                if ($null -eq $line) { break }
+            try {
                 $readTask = $process.StandardOutput.ReadLineAsync()
 
-                if ($Raw) {
-                    $line
-                    continue
-                }
+                while ($true) {
+                    # Ctrl+L clears the screen; listening continues.
+                    while ($keyboard -and [Console]::KeyAvailable) {
+                        $key = [Console]::ReadKey($true)
 
-                if ($line -notmatch $linePattern) { continue }
+                        if ($key.Key -eq 'L' -and ($key.Modifiers -band [ConsoleModifiers]::Control)) {
+                            Clear-Host
+                            & $banner
+                        }
+                    }
 
-                $source = $Matches[1]
-                $message = $Matches[2].TrimEnd("`r")
+                    # Short wait so Ctrl+C and key presses stay responsive.
+                    if (-not $readTask.Wait(100)) { continue }
 
-                # Android splits a long message into several records (same PID/TID,
-                # newer timestamp), so an entry continues while the same thread logs.
-                # Pretty-printed JSON indents everything between its outer brackets, so a
-                # line starting at column 0 with anything but '}' or ']' (or a line from
-                # another thread) means the previous entry was cut off.
-                if ($buffer.Length -gt 0 -and ($source -ne $entrySource -or $message -match '^[^\s\]}]')) {
-                    . $flush $true
-                }
+                    $line = $readTask.Result
+                    if ($null -eq $line) { break }
+                    $readTask = $process.StandardOutput.ReadLineAsync()
 
-                if ($buffer.Length -eq 0) {
-                    if ($message -notmatch '^\s*[\[{]') {
-                        $message
+                    if ($Raw) {
+                        & $emit $line
                         continue
                     }
-                    $entrySource = $source
-                    $lineCount = 0
-                }
 
-                [void]$buffer.AppendLine($message)
-                $lineCount++
+                    if ($line -notmatch $linePattern) { continue }
 
-                # Track bracket depth, ignoring brackets inside JSON strings.
-                foreach ($ch in $message.ToCharArray()) {
-                    if ($inString) {
-                        if ($escaped) { $escaped = $false }
-                        elseif ($ch -eq '\') { $escaped = $true }
-                        elseif ($ch -eq '"') { $inString = $false }
+                    $source = $Matches[1]
+                    $message = $Matches[2].TrimEnd("`r")
+
+                    # Android splits a long message into several records (same PID/TID,
+                    # newer timestamp), so an entry continues while the same thread logs.
+                    # Pretty-printed JSON indents everything between its outer brackets, so a
+                    # line starting at column 0 with anything but '}' or ']' (or a line from
+                    # another thread) means the previous entry was cut off.
+                    if ($buffer.Length -gt 0 -and ($source -ne $entrySource -or $message -match '^[^\s\]}]')) {
+                        . $flush $true
                     }
-                    elseif ($ch -eq '"') { $inString = $true }
-                    elseif ($ch -eq '{' -or $ch -eq '[') { $depthLevel++ }
-                    elseif ($ch -eq '}' -or $ch -eq ']') { $depthLevel-- }
+
+                    if ($buffer.Length -eq 0) {
+                        if ($message -notmatch '^\s*[\[{]') {
+                            & $emit $message
+                            continue
+                        }
+                        $entrySource = $source
+                        $lineCount = 0
+                    }
+
+                    [void]$buffer.AppendLine($message)
+                    $lineCount++
+
+                    # Track bracket depth, ignoring brackets inside JSON strings.
+                    foreach ($ch in $message.ToCharArray()) {
+                        if ($inString) {
+                            if ($escaped) { $escaped = $false }
+                            elseif ($ch -eq '\') { $escaped = $true }
+                            elseif ($ch -eq '"') { $inString = $false }
+                        }
+                        elseif ($ch -eq '"') { $inString = $true }
+                        elseif ($ch -eq '{' -or $ch -eq '[') { $depthLevel++ }
+                        elseif ($ch -eq '}' -or $ch -eq ']') { $depthLevel-- }
+                    }
+
+                    if ($depthLevel -le 0) {
+                        . $flush $false
+                    }
                 }
 
-                if ($depthLevel -le 0) {
-                    . $flush $false
+                if ($buffer.Length -gt 0) {
+                    . $flush $true
                 }
             }
-
-            if ($buffer.Length -gt 0) {
-                . $flush $true
+            finally {
+                # Runs on Ctrl+C too, so no orphaned logcat process is left behind.
+                if (-not $process.HasExited) { $process.Kill() }
+                $process.Dispose()
             }
-        }
-        finally {
-            # Runs on Ctrl+C too, so no orphaned logcat process is left behind.
-            if (-not $process.HasExited) { $process.Kill() }
-            $process.Dispose()
-        }
 
-        # logcat only exits on its own when the device goes away.
-        Write-Warning "logcat stopped (device disconnected?). Waiting for device... (Ctrl+C to stop)"
-        adb @adbArgs wait-for-device
+            # logcat only exits on its own when the device goes away.
+            Write-Warning "logcat stopped (device disconnected?). Waiting for device... (Ctrl+C to stop)"
+            adb @adbArgs wait-for-device
+        }
+    }
+    finally {
+        if ($writer) { $writer.Dispose() }
     }
 }
 
